@@ -176,7 +176,7 @@ void Solver<Dtype>::Solve(const char* resume_file) {
   CHECK_GE(average_loss, 1) << "average_cost should be non-negative.";
 
   vector<Dtype> losses;
-  Dtype smoothed_loss = 0;
+  Dtype smoothed_loss;
 
   // For a network that is trained by the solver, no bottom or top vecs
   // should be given, and we will just provide dummy vecs.
