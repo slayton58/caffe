@@ -94,8 +94,6 @@ void ImageDataLayer<Dtype>::ShuffleImages() {
 // This function is used to create a thread that prefetches the data.
 template <typename Dtype>
 void ImageDataLayer<Dtype>::InternalThreadEntry() {
-  Timer batch_timer;
-  batch_timer.Start();
   CHECK(this->prefetch_data_.count());
   CHECK(this->transformed_data_.count());
   Dtype* top_data = this->prefetch_data_.mutable_cpu_data();
@@ -134,7 +132,6 @@ void ImageDataLayer<Dtype>::InternalThreadEntry() {
       }
     }
   }
-  DLOG(INFO) << "Prefetch: " << batch_timer.MilliSeconds() << " ms.";
 }
 
 INSTANTIATE_CLASS(ImageDataLayer);
