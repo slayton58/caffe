@@ -33,7 +33,7 @@ class DataTransformer {
    *    Datum containing the data to be transformed.
    * @param transformed_blob
    *    This is destination blob. It can be part of top blob's data if
-   *    set_cpu_data() is used See data_layer.cpp for an example.
+   *    set_cpu_data() is used. See data_layer.cpp for an example.
    */
   void Transform(const Datum& datum, Blob<Dtype>* transformed_blob);
 
@@ -45,7 +45,7 @@ class DataTransformer {
    *    A vector of Datum containing the data to be transformed.
    * @param transformed_blob
    *    This is destination blob. It can be part of top blob's data if
-   *    set_cpu_data() is used See memory_layer.cpp for an example.
+   *    set_cpu_data() is used. See memory_layer.cpp for an example.
    */
   void Transform(const vector<Datum> & datum_vector,
                 Blob<Dtype>* transformed_blob);
@@ -58,7 +58,7 @@ class DataTransformer {
    *    cv::Mat containing the data to be transformed.
    * @param transformed_blob
    *    This is destination blob. It can be part of top blob's data if
-   *    set_cpu_data() is used See image_data_layer.cpp for an example.
+   *    set_cpu_data() is used. See image_data_layer.cpp for an example.
    */
   void Transform(const cv::Mat& cv_img, Blob<Dtype>* transformed_blob);
 
