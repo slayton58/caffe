@@ -228,10 +228,10 @@ Then, whenever you want to update homebrew, switch back to the master branches, 
     git checkout master
     cd /usr/local/Library/Taps/homebrew/homebrew-science
     git checkout master
-
+    
     # Update homebrew; hopefully this works without errors!
     brew update
-
+    
     # Switch back to the caffe branches with the forumlae that you modified earlier
     cd /usr/local
     git rebase master caffe
@@ -239,8 +239,8 @@ Then, whenever you want to update homebrew, switch back to the master branches, 
     cd /usr/local/Library/Taps/homebrew/homebrew-science
     git rebase master caffe
     # Fix any merge conflicts and commit to caffe branch
-
-    # Done!
+    
+    # Done!            
 
 At this point, you should be running the latest Homebrew packages and your Caffe-related modifications will remain in place.
 
