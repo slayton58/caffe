@@ -40,28 +40,34 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
       size_t workspaceSizeInBytes_temp;
 
       CUDNN_CHECK(cudnnGetConvolutionForwardWorkspaceSize(handle_[g],
-                                                          bottom_descs_[i],
-                                                          filter_desc_,
-                                                          conv_descs_[i],
-                                                          top_descs_[i],
-                                                          algo,
-                                                          &workspaceSizeInBytes));
+        bottom_descs_[i],
+        filter_desc_,
+        conv_descs_[i],
+        top_descs_[i],
+        algo,
+        &workspaceSizeInBytes_temp));
 
+      // printf("selected algo %d, %d bytes workspace needed (%d bytes workspace now)\n",(int)algo, (int)workspaceSizeInBytes_temp,workspaceSizeInBytes);
       if (workspaceSizeInBytes_temp > workspaceSizeInBytes) {
         workspaceSizeInBytes = workspaceSizeInBytes_temp;
         // free the existing workspace and allocate a new (larger) one
-        cudaFree(this->workspace);
+        if (this->workspace != NULL) {
+          cudaFree(this->workspace);
+        }
         cudaMalloc(&(this->workspace), workspaceSizeInBytes);
+        CUDA_POST_KERNEL_CHECK;
       }
 
       // Filters.
-      CUDNN_CHECK(cudnnConvolutionForward(handle_[g], (void *)(&alpha),
-                                          bottom_descs_[i], bottom_data + bottom_offset_ * g,
-                                          filter_desc_, weight + weight_offset_ * g,
-                                          conv_descs_[i],
-                                          algo, workspace, workspaceSizeInBytes, // algo, workspace, workspacebytes,
-                                          (void *)(&beta),
-                                          top_descs_[i], top_data + top_offset_ * g));
+      CUDNN_CHECK(cudnnConvolutionForward(handle_[g],
+            reinterpret_cast<void *>(&alpha),
+            bottom_descs_[i], bottom_data + bottom_offset_ * g,
+            filter_desc_, weight + weight_offset_ * g,
+            conv_descs_[i],
+            // CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM, NULL, 0,
+            algo, workspace, workspaceSizeInBytes,
+            reinterpret_cast<void *>(&beta),
+            top_descs_[i], top_data + top_offset_ * g));
 
       // Bias.
       if (this->bias_term_) {

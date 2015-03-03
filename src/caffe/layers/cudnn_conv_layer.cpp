@@ -25,6 +25,9 @@ void CuDNNConvolutionLayer<Dtype>::LayerSetUp(
   stream_         = new cudaStream_t[this->group_ * CUDNN_STREAMS_PER_GROUP];
   handle_         = new cudnnHandle_t[this->group_ * CUDNN_STREAMS_PER_GROUP];
 
+  workspace = NULL;
+  workspaceSizeInBytes = (size_t)0;
+
   for (int g = 0; g < this->group_ * CUDNN_STREAMS_PER_GROUP; g++) {
     CUDA_CHECK(cudaStreamCreate(&stream_[g]));
     CUDNN_CHECK(cudnnCreate(&handle_[g]));
