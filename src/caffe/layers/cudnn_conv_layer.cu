@@ -21,8 +21,8 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
 
     // Forward through cuDNN in parallel over groups.
     for (int g = 0; g < this->group_; g++) {
-      const Dtype alpha = 1.0;
-      const Dtype beta = 0.0;
+      Dtype alpha = 1.0;
+      Dtype beta = 0.0;
 
       cudnnConvolutionFwdAlgo_t algo;
 
@@ -37,7 +37,7 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
         &algo));
 
       // get minimum size of the workspace needed for the desired algorithm
-      size_t workspaceSizeInBytes_temp;
+      size_t workspaceSizeInBytes_temp = 0;
 
       CUDNN_CHECK(cudnnGetConvolutionForwardWorkspaceSize(handle_[g],
         bottom_descs_[i],
@@ -111,39 +111,39 @@ void CuDNNConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
 
       // Gradient w.r.t. bias.
       if (this->bias_term_ && this->param_propagate_down_[1]) {
-        const Dtype alpha = 1.0;
-        const Dtype beta = 1.0;
-        CUDNN_CHECK(cudnnConvolutionBackwardBias(handle_[0*this->group_ + g], (void *)(&alpha),
-                                                 top_descs_[i],  top_diff + top_offset_ * g,
-                                                 (void *)(&beta),
-                                                 bias_desc_, bias_diff + bias_offset_ * g));
+        Dtype alpha = 1.0;
+        Dtype beta = 1.0;
+        CUDNN_CHECK(cudnnConvolutionBackwardBias(handle_[0*this->group_ + g],
+              reinterpret_cast<void *>(&alpha),
+              top_descs_[i],  top_diff + top_offset_ * g,
+              reinterpret_cast<void *>(&beta),
+              bias_desc_, bias_diff + bias_offset_ * g));
       }
 
       // Gradient w.r.t. weights.
       if (this->param_propagate_down_[0]) {
-        const Dtype* bottom_data = bottom[i]->gpu_data();
-        const Dtype alpha = 1.0;
-        const Dtype beta = 1.0;
-        CUDNN_CHECK(cudnnConvolutionBackwardFilter(handle_[1*this->group_ + g], (void *)(&alpha),
-                                                   bottom_descs_[i], bottom_data + bottom_offset_ * g,
-                                                   top_descs_[i],    top_diff + top_offset_ * g,
-                                                   conv_descs_[i], (void *)(&beta),
-                                                   filter_desc_, weight_diff + weight_offset_ * g));
+        Dtype alpha = 1.0;
+        Dtype beta = 1.0;
+        const Dtype *bottom_data = bottom[i]->gpu_data();
+        CUDNN_CHECK(cudnnConvolutionBackwardFilter(handle_[1*this->group_ + g],
+              reinterpret_cast<void *>(&alpha),
+              bottom_descs_[i], bottom_data + bottom_offset_ * g,
+              top_descs_[i],    top_diff + top_offset_ * g,
+              conv_descs_[i], reinterpret_cast<void *>(&beta),
+              filter_desc_, weight_diff + weight_offset_ * g));
       }
 
       // Gradient w.r.t. bottom data.
       if (propagate_down[i]) {
-        if (weight == NULL) {
-          weight = this->blobs_[0]->gpu_data();
-        }
+        Dtype alpha = 1.0;
+        Dtype beta = 0.0;
         Dtype* bottom_diff = bottom[i]->mutable_gpu_diff();
-        const Dtype alpha = 1.0;
-        const Dtype beta = 0.0;
-        CUDNN_CHECK(cudnnConvolutionBackwardData(handle_[2*this->group_ + g], (void *)(&alpha),
-                                                 filter_desc_, weight + weight_offset_ * g,
-                                                 top_descs_[i],    top_diff + top_offset_ * g,
-                                                 conv_descs_[i], (void *)(&beta),
-                                                 bottom_descs_[i], bottom_diff + bottom_offset_ * g));
+        CUDNN_CHECK(cudnnConvolutionBackwardData(handle_[2*this->group_ + g],
+              reinterpret_cast<void *>(&alpha),
+              filter_desc_, weight + weight_offset_ * g,
+              top_descs_[i],    top_diff + top_offset_ * g,
+              conv_descs_[i], reinterpret_cast<void *>(&beta),
+              bottom_descs_[i], bottom_diff + bottom_offset_ * g));
       }
     }
 
