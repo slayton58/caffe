@@ -24,14 +24,17 @@ Net<Dtype>::Net(const NetParameter& param) {
 }
 
 template <typename Dtype>
-Net<Dtype>::Net(const string& param_file) {
+Net<Dtype>::Net(const string& param_file, Phase phase) {
   NetParameter param;
   ReadNetParamsFromTextFileOrDie(param_file, &param);
+  param.mutable_state()->set_phase(phase);
   Init(param);
 }
 
 template <typename Dtype>
 void Net<Dtype>::Init(const NetParameter& in_param) {
+  // Set phase from the state.
+  phase_ = in_param.state().phase();
   // Filter layers based on their include/exclude rules and
   // the current NetState.
   NetParameter filtered_param;
@@ -45,8 +48,16 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   name_ = param.name();
   map<string, int> blob_name_to_idx;
   set<string> available_blobs;
-  CHECK_EQ(param.input_size() * 4, param.input_dim_size())
-      << "Incorrect input blob dimension specifications.";
+  CHECK(param.input_dim_size() == 0 || param.input_shape_size() == 0)
+      << "Must specify either input_shape OR deprecated input_dim, not both.";
+  if (param.input_dim_size() > 0) {
+    // Deprecated 4D dimensions.
+    CHECK_EQ(param.input_size() * 4, param.input_dim_size())
+        << "Incorrect input blob dimension specifications.";
+  } else {
+    CHECK_EQ(param.input_size(), param.input_shape_size())
+        << "Exactly one input_shape must be specified per input.";
+  }
   memory_used_ = 0;
   // set the input blobs
   for (int input_id = 0; input_id < param.input_size(); ++input_id) {
@@ -62,9 +73,13 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   top_id_vecs_.resize(param.layer_size());
   bottom_need_backward_.resize(param.layer_size());
   for (int layer_id = 0; layer_id < param.layer_size(); ++layer_id) {
+    // Inherit phase from net if unset.
+    if (!param.layer(layer_id).has_phase()) {
+      param.mutable_layer(layer_id)->set_phase(phase_);
+    }
+    // Setup layer.
     const LayerParameter& layer_param = param.layer(layer_id);
-    layers_.push_back(shared_ptr<Layer<Dtype> >(
-          LayerRegistry<Dtype>::CreateLayer(layer_param)));
+    layers_.push_back(LayerRegistry<Dtype>::CreateLayer(layer_param));
     layer_names_.push_back(layer_param.name());
     LOG(INFO) << "Creating Layer " << layer_param.name();
     bool need_backward = false;
@@ -102,11 +117,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
         blob_loss_weights_.resize(top_id_vecs_[layer_id][top_id] + 1, Dtype(0));
       }
       blob_loss_weights_[top_id_vecs_[layer_id][top_id]] = layer->loss(top_id);
-      LOG(INFO) << "Top shape: " << top_vecs_[layer_id][top_id]->num() << " "
-          << top_vecs_[layer_id][top_id]->channels() << " "
-          << top_vecs_[layer_id][top_id]->height() << " "
-          << top_vecs_[layer_id][top_id]->width() << " ("
-          << top_vecs_[layer_id][top_id]->count() << ")";
+      LOG(INFO) << "Top shape: " << top_vecs_[layer_id][top_id]->shape_string();
       if (layer->loss(top_id)) {
         LOG(INFO) << "    with loss weight " << layer->loss(top_id);
       }
@@ -211,20 +222,6 @@ template <typename Dtype>
 void Net<Dtype>::FilterNet(const NetParameter& param,
     NetParameter* param_filtered) {
   NetState net_state(param.state());
-  // Let the phase of the net be the current global phase provided in the Caffe
-  // singleton, unless explicitly provided by the state.
-  if (!net_state.has_phase()) {
-    switch (Caffe::phase()) {
-      case Caffe::TRAIN:
-        net_state.set_phase(TRAIN);
-        break;
-      case Caffe::TEST:
-        net_state.set_phase(TEST);
-        break;
-      default:
-        LOG(FATAL) << "Unknown phase: " << Caffe::phase();
-    }
-  }
   param_filtered->CopyFrom(param);
   param_filtered->clear_layer();
   for (int i = 0; i < param.layer_size(); ++i) {
@@ -350,10 +347,14 @@ void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
     if (blob_name_to_idx) { (*blob_name_to_idx)[blob_name] = blob_id; }
     if (layer_id == -1) {
       // Set the (explicitly specified) dimensions of the input blob.
-      blob_pointer->Reshape(param.input_dim(top_id * 4),
-                            param.input_dim(top_id * 4 + 1),
-                            param.input_dim(top_id * 4 + 2),
-                            param.input_dim(top_id * 4 + 3));
+      if (param.input_dim_size() > 0) {
+        blob_pointer->Reshape(param.input_dim(top_id * 4),
+                              param.input_dim(top_id * 4 + 1),
+                              param.input_dim(top_id * 4 + 2),
+                              param.input_dim(top_id * 4 + 3));
+      } else {
+        blob_pointer->Reshape(param.input_shape(top_id));
+      }
       net_input_blob_indices_.push_back(blob_id);
       net_input_blobs_.push_back(blob_pointer.get());
     } else {
@@ -434,14 +435,7 @@ void Net<Dtype>::AppendParam(const NetParameter& param, const int layer_id,
           << "Shared parameter blobs must have the same count.";
     } else {
       // Strict dimension checking -- all dims must be the same.
-      CHECK_EQ(this_blob->num(), owner_blob->num())
-          << "Shared parameter blobs must have the same num.";
-      CHECK_EQ(this_blob->channels(), owner_blob->channels())
-          << "Shared parameter blobs must have the same channels.";
-      CHECK_EQ(this_blob->height(), owner_blob->height())
-          << "Shared parameter blobs must have the same height.";
-      CHECK_EQ(this_blob->width(), owner_blob->width())
-          << "Shared parameter blobs must have the same width.";
+      CHECK(this_blob->shape() == owner_blob->shape());
     }
     layers_[layer_id]->blobs()[param_id]->ShareData(
         *layers_[owner_layer_id]->blobs()[owner_param_id]);
@@ -647,10 +641,7 @@ void Net<Dtype>::ShareTrainedLayersWith(const Net* other) {
         << "Incompatible number of blobs for layer " << source_layer_name;
     for (int j = 0; j < target_blobs.size(); ++j) {
       Blob<Dtype>* source_blob = source_layer->blobs()[j].get();
-      CHECK_EQ(target_blobs[j]->num(), source_blob->num());
-      CHECK_EQ(target_blobs[j]->channels(), source_blob->channels());
-      CHECK_EQ(target_blobs[j]->height(), source_blob->height());
-      CHECK_EQ(target_blobs[j]->width(), source_blob->width());
+      CHECK(target_blobs[j]->shape() == source_blob->shape());
       target_blobs[j]->ShareData(*source_blob);
     }
   }
@@ -714,11 +705,8 @@ void Net<Dtype>::CopyTrainedLayersFrom(const NetParameter& param) {
     CHECK_EQ(target_blobs.size(), source_layer.blobs_size())
         << "Incompatible number of blobs for layer " << source_layer_name;
     for (int j = 0; j < target_blobs.size(); ++j) {
-      CHECK_EQ(target_blobs[j]->num(), source_layer.blobs(j).num());
-      CHECK_EQ(target_blobs[j]->channels(), source_layer.blobs(j).channels());
-      CHECK_EQ(target_blobs[j]->height(), source_layer.blobs(j).height());
-      CHECK_EQ(target_blobs[j]->width(), source_layer.blobs(j).width());
-      target_blobs[j]->FromProto(source_layer.blobs(j));
+      const bool kReshape = false;
+      target_blobs[j]->FromProto(source_layer.blobs(j), kReshape);
     }
   }
 }

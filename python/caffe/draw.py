@@ -17,13 +17,6 @@ NEURON_LAYER_STYLE = {'shape': 'record', 'fillcolor': '#90EE90',
          'style': 'filled'}
 BLOB_STYLE = {'shape': 'octagon', 'fillcolor': '#E0E0E0',
         'style': 'filled'}
-def get_enum_name_by_value():
-  desc = caffe_pb2.LayerParameter.LayerType.DESCRIPTOR
-  d = {}
-  for k,v in desc.values_by_name.items():
-    d[v.number] = k
-  return d
-
 
 def get_pooling_types_dict():
     """Get dictionary mapping pooling type number to type name
@@ -39,11 +32,11 @@ def determine_edge_label_by_layertype(layer, layertype):
     """Define edge label based on layer type
     """
 
-    if layertype == 'DATA':
+    if layertype == 'Data':
         edge_label = 'Batch ' + str(layer.data_param.batch_size)
-    elif layertype == 'CONVOLUTION':
+    elif layertype == 'Convolution':
         edge_label = str(layer.convolution_param.num_output)
-    elif layertype == 'INNER_PRODUCT':
+    elif layertype == 'InnerProduct':
         edge_label = str(layer.inner_product_param.num_output)
     else:
         edge_label = '""'
@@ -64,7 +57,7 @@ def determine_node_label_by_layertype(layer, layertype, rankdir):
         # horizontal space is not; separate words with newlines
         separator = '\n'
 
-    if layertype == 'CONVOLUTION':
+    if layertype == 'Convolution':
         # Outer double quotes needed or else colon characters don't parse
         # properly
         node_label = '"%s%s(%s)%skernel size: %d%sstride: %d%spad: %d"' %\
@@ -77,7 +70,7 @@ def determine_node_label_by_layertype(layer, layertype, rankdir):
                       layer.convolution_param.stride,
                       separator,
                       layer.convolution_param.pad)
-    elif layertype == 'POOLING':
+    elif layertype == 'Pooling':
         pooling_types_dict = get_pooling_types_dict()
         node_label = '"%s%s(%s %s)%skernel size: %d%sstride: %d%spad: %d"' %\
                      (layer.name,
@@ -99,11 +92,11 @@ def choose_color_by_layertype(layertype):
     """Define colors for nodes based on the layer type
     """
     color = '#6495ED'  # Default
-    if layertype == 'CONVOLUTION':
+    if layertype == 'Convolution':
         color = '#FF5050'
-    elif layertype == 'POOLING':
+    elif layertype == 'Pooling':
         color = '#FF9900'
-    elif layertype == 'INNER_PRODUCT':
+    elif layertype == 'InnerProduct':
         color = '#CC33FF'
     return color
 
@@ -112,10 +105,9 @@ def get_pydot_graph(caffe_net, rankdir, label_edges=True):
   pydot_graph = pydot.Dot(caffe_net.name, graph_type='digraph', rankdir=rankdir)
   pydot_nodes = {}
   pydot_edges = []
-  d = get_enum_name_by_value()
-  for layer in caffe_net.layers:
+  for layer in caffe_net.layer:
     name = layer.name
-    layertype = d[layer.type]
+    layertype = layer.type
     node_label = determine_node_label_by_layertype(layer, layertype, rankdir)
     if (len(layer.bottom) == 1 and len(layer.top) == 1 and
         layer.bottom[0] == layer.top[0]):

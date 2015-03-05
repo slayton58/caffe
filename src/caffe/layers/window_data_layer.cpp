@@ -1,3 +1,4 @@
+#include <opencv2/highgui/highgui_c.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -21,10 +22,6 @@
 // caffe.proto > LayerParameter > WindowDataParameter
 //   'source' field specifies the window_file
 //   'crop_size' indicates the desired warped size
-
-#if CV_VERSION_MAJOR == 3
-const int CV_LOAD_IMAGE_COLOR = cv::IMREAD_COLOR;
-#endif
 
 namespace caffe {
 
@@ -180,8 +177,9 @@ void WindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       << top[0]->channels() << "," << top[0]->height() << ","
       << top[0]->width();
   // label
-  top[1]->Reshape(batch_size, 1, 1, 1);
-  this->prefetch_label_.Reshape(batch_size, 1, 1, 1);
+  vector<int> label_shape(1, batch_size);
+  top[1]->Reshape(label_shape);
+  this->prefetch_label_.Reshape(label_shape);
 
   // data mean
   has_mean_file_ = this->transform_param_.has_mean_file();
@@ -281,7 +279,7 @@ void WindowDataLayer<Dtype>::InternalThreadEntry() {
       if (this->cache_images_) {
         pair<std::string, Datum> image_cached =
           image_database_cache_[window[WindowDataLayer<Dtype>::IMAGE_INDEX]];
-        cv_img = DecodeDatumToCVMat(image_cached.second);
+        cv_img = DecodeDatumToCVMat(image_cached.second, true);
       } else {
         cv_img = cv::imread(image.first, CV_LOAD_IMAGE_COLOR);
         if (!cv_img.data) {

@@ -169,8 +169,8 @@ class ContrastiveLossLayer : public LossLayer<Dtype> {
 
   /**
    * @brief Computes the Contrastive error gradient w.r.t. the inputs.
-   * 
-   * Computes the gradients with respect to the two input vectors (bottom[0] and 
+   *
+   * Computes the gradients with respect to the two input vectors (bottom[0] and
    * bottom[1]), but not the similarity label (bottom[2]).
    *
    * @param top output Blob vector (length 1), providing the error gradient with
@@ -189,7 +189,7 @@ class ContrastiveLossLayer : public LossLayer<Dtype> {
    *      the features @f$a@f$; Backward fills their diff with
    *      gradients if propagate_down[0]
    *   -# @f$ (N \times C \times 1 \times 1) @f$
-   *      the features @f$b@f$; Backward fills their diff with gradients if 
+   *      the features @f$b@f$; Backward fills their diff with gradients if
    *      propagate_down[1]
    */
   virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
@@ -696,9 +696,6 @@ class SoftmaxWithLossLayer : public LossLayer<Dtype> {
       const vector<Blob<Dtype>*>& top);
 
   virtual inline const char* type() const { return "SoftmaxWithLoss"; }
-  virtual inline int ExactNumBottomBlobs() const { return -1; }
-  virtual inline int MinBottomBlobs() const { return 2; }
-  virtual inline int MaxBottomBlobs() const { return 3; }
   virtual inline int ExactNumTopBlobs() const { return -1; }
   virtual inline int MinTopBlobs() const { return 1; }
   virtual inline int MaxTopBlobs() const { return 2; }
@@ -757,6 +754,8 @@ class SoftmaxWithLossLayer : public LossLayer<Dtype> {
   /// Whether to normalize the loss by the total number of values present
   /// (otherwise just by the batch size).
   bool normalize_;
+
+  int softmax_axis_, outer_num_, inner_num_;
 };
 
 }  // namespace caffe

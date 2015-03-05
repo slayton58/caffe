@@ -219,7 +219,6 @@ void Solver<Dtype>::Step(int iters) {
 
 template <typename Dtype>
 void Solver<Dtype>::Solve(const char* resume_file) {
-  Caffe::set_phase(Caffe::TRAIN);
   LOG(INFO) << "Solving " << net_->name();
   LOG(INFO) << "Learning Rate Policy: " << param_.lr_policy();
 
@@ -266,8 +265,6 @@ template <typename Dtype>
 void Solver<Dtype>::Test(const int test_net_id) {
   LOG(INFO) << "Iteration " << iter_
             << ", Testing net (#" << test_net_id << ")";
-  // We need to set phase to test before running.
-  Caffe::set_phase(Caffe::TEST);
   CHECK_NOTNULL(test_nets_[test_net_id].get())->
       ShareTrainedLayersWith(net_.get());
   vector<Dtype> test_score;
@@ -318,7 +315,6 @@ void Solver<Dtype>::Test(const int test_net_id) {
     LOG(INFO) << "    Test net output #" << i << ": " << output_name << " = "
         << mean_score << loss_msg_stream.str();
   }
-  Caffe::set_phase(Caffe::TRAIN);
 }
 
 
@@ -424,19 +420,37 @@ void SGDSolver<Dtype>::PreSolve() {
   update_.clear();
   temp_.clear();
   for (int i = 0; i < net_params.size(); ++i) {
-    const Blob<Dtype>* net_param = net_params[i].get();
-    history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(
-        net_param->num(), net_param->channels(), net_param->height(),
-        net_param->width())));
-    update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(
-        net_param->num(), net_param->channels(), net_param->height(),
-        net_param->width())));
-    temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(
-        net_param->num(), net_param->channels(), net_param->height(),
-        net_param->width())));
+    const vector<int>& shape = net_params[i]->shape();
+    history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+    update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+    temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
   }
 }
 
+template <typename Dtype>
+void SGDSolver<Dtype>::ClipGradients() {
+  const Dtype clip_gradients = this->param_.clip_gradients();
+  if (clip_gradients < 0) { return; }
+  const vector<shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
+  Dtype sumsq_diff = 0;
+  for (int i = 0; i < net_params.size(); ++i) {
+    if (this->net_->param_owners()[i] < 0) {
+      sumsq_diff += net_params[i]->sumsq_diff();
+    }
+  }
+  const Dtype l2norm_diff = std::sqrt(sumsq_diff);
+  if (l2norm_diff > clip_gradients) {
+    Dtype scale_factor = clip_gradients / l2norm_diff;
+    LOG(INFO) << "Gradient clipping: scaling down gradients (L2 norm "
+        << l2norm_diff << " > " << clip_gradients << ") "
+        << "by scale factor " << scale_factor;
+    for (int i = 0; i < net_params.size(); ++i) {
+      if (this->net_->param_owners()[i] < 0) {
+        net_params[i]->scale_diff(scale_factor);
+      }
+    }
+  }
+}
 
 template <typename Dtype>
 void SGDSolver<Dtype>::ComputeUpdateValue() {
@@ -449,6 +463,7 @@ void SGDSolver<Dtype>::ComputeUpdateValue() {
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
   }
+  ClipGradients();
   Dtype momentum = this->param_.momentum();
   Dtype weight_decay = this->param_.weight_decay();
   string regularization_type = this->param_.regularization_type();
@@ -563,6 +578,7 @@ void NesterovSolver<Dtype>::ComputeUpdateValue() {
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
   }
+  SGDSolver<Dtype>::ClipGradients();
   Dtype momentum = this->param_.momentum();
   Dtype weight_decay = this->param_.weight_decay();
   string regularization_type = this->param_.regularization_type();
@@ -680,6 +696,7 @@ void AdaGradSolver<Dtype>::ComputeUpdateValue() {
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
   }
+  SGDSolver<Dtype>::ClipGradients();
   Dtype weight_decay = this->param_.weight_decay();
   string regularization_type = this->param_.regularization_type();
   switch (Caffe::mode()) {

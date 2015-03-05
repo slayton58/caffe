@@ -22,6 +22,7 @@ void CuDNNPoolingLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   cudnn::createPoolingDesc<Dtype>(&pooling_desc_,
       this->layer_param_.pooling_param().pool(), &mode_,
       this->kernel_h_, this->kernel_w_, this->stride_h_, this->stride_w_);
+  handles_setup_ = true;
 }
 
 template <typename Dtype>

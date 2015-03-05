@@ -63,17 +63,18 @@ class NetTest : public MultiDeviceTest<TypeParam> {
         "  name: 'data' "
         "  type: 'DummyData' "
         "  dummy_data_param { "
-        "    num: 5 "
-        "    channels: 2 "
-        "    height: 3 "
-        "    width: 4 "
-        "    num: 5 "
-        "    channels: 1 "
-        "    height: 1 "
-        "    width: 1 "
+        "    shape { "
+        "      dim: 5 "
+        "      dim: 2 "
+        "      dim: 3 "
+        "      dim: 4 "
+        "    } "
         "    data_filler { "
         "      type: 'gaussian' "
         "      std: 0.01 "
+        "    } "
+        "    shape { "
+        "      dim: 5 "
         "    } "
         "    data_filler { "
         "      type: 'constant' "
@@ -1533,20 +1534,6 @@ TEST_F(FilterNetTest, TestFilterLeNetTrainTest) {
   const string output_proto_test_explicit =
       output_proto_test + " state: { phase: TEST } ";
   this->RunFilterNetTest(input_proto_train, output_proto_train_explicit);
-  this->RunFilterNetTest(input_proto_test, output_proto_test_explicit);
-
-  // Also check that nets are filtered according to the Caffe singleton phase,
-  // if not explicitly specified in the input proto.
-  Caffe::set_phase(Caffe::TRAIN);
-  this->RunFilterNetTest(input_proto, output_proto_train);
-  Caffe::set_phase(Caffe::TEST);
-  this->RunFilterNetTest(input_proto, output_proto_test);
-
-  // Finally, check that the current Caffe singleton phase is ignored if the
-  // phase is explicitly specified in the input proto.
-  Caffe::set_phase(Caffe::TEST);
-  this->RunFilterNetTest(input_proto_train, output_proto_train_explicit);
-  Caffe::set_phase(Caffe::TRAIN);
   this->RunFilterNetTest(input_proto_test, output_proto_test_explicit);
 }
 

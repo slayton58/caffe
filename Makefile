@@ -69,8 +69,8 @@ EMPTY_LINT_REPORT := $(BUILD_DIR)/.$(LINT_EXT)
 NONEMPTY_LINT_REPORT := $(BUILD_DIR)/$(LINT_EXT)
 # PY$(PROJECT)_SRC is the python wrapper for $(PROJECT)
 PY$(PROJECT)_SRC := python/$(PROJECT)/_$(PROJECT).cpp
-PY$(PROJECT)_HXX_SRC := python/$(PROJECT)/_$(PROJECT).hpp
 PY$(PROJECT)_SO := python/$(PROJECT)/_$(PROJECT).so
+PY$(PROJECT)_HXX := include/$(PROJECT)/python_layer.hpp
 # MAT$(PROJECT)_SRC is the matlab wrapper for $(PROJECT)
 MAT$(PROJECT)_SRC := matlab/$(PROJECT)/mat$(PROJECT).cpp
 ifneq ($(MATLAB_DIR),)
@@ -123,10 +123,8 @@ TEST_CU_BINS := $(addsuffix .testbin,$(addprefix $(TEST_BIN_DIR)/, \
 TEST_CXX_BINS := $(addsuffix .testbin,$(addprefix $(TEST_BIN_DIR)/, \
 		$(foreach obj,$(TEST_CXX_OBJS),$(basename $(notdir $(obj))))))
 TEST_BINS := $(TEST_CXX_BINS) $(TEST_CU_BINS)
-# TEST_ALL_BIN is the test binary that links caffe statically.
+# TEST_ALL_BIN is the test binary that links caffe dynamically.
 TEST_ALL_BIN := $(TEST_BIN_DIR)/test_all.testbin
-# TEST_ALL_DYNINK_BIN is the test binary that links caffe as a dynamic library.
-TEST_ALL_DYNLINK_BIN := $(TEST_BIN_DIR)/test_all_dynamic_link.testbin
 
 ##############################
 # Derive compiler warning dump locations
@@ -245,7 +243,11 @@ ifeq ($(OSX), 1)
 	COMMON_FLAGS += -DGTEST_USE_OWN_TR1_TUPLE=1
 	# boost::thread is called boost_thread-mt to mark multithreading on OS X
 	LIBRARIES += boost_thread-mt
-	NVCCFLAGS += -DOSX
+	# we need to explicitly ask for the rpath to be obeyed
+	DYNAMIC_FLAGS := -install_name @rpath/libcaffe.so
+	ORIGIN := @loader_path
+else
+	ORIGIN := \$$ORIGIN
 endif
 
 # Custom compiler
@@ -259,7 +261,8 @@ ifneq (,$(findstring clang++,$(CXX)))
 else ifneq (,$(findstring g++,$(CXX)))
 	STATIC_LINK_COMMAND := -Wl,--whole-archive $(STATIC_NAME) -Wl,--no-whole-archive
 else
-	$(error Cannot static link with the $(CXX) compiler.)
+  # The following line must not be indented with a tab, since we are not inside a target
+  $(error Cannot static link with the $(CXX) compiler)
 endif
 
 # Debugging
@@ -284,6 +287,12 @@ ifeq ($(CPU_ONLY), 1)
 	ALL_WARNS := $(ALL_CXX_WARNS)
 	TEST_FILTER := --gtest_filter="-*GPU*"
 	COMMON_FLAGS += -DCPU_ONLY
+endif
+
+# Python layer support
+ifeq ($(WITH_PYTHON_LAYER), 1)
+	COMMON_FLAGS += -DWITH_PYTHON_LAYER
+	LIBRARIES += $(PYTHON_LIBRARIES)
 endif
 
 # BLAS configuration (default = ATLAS)
@@ -311,7 +320,7 @@ else
 		# 10.10 has accelerate while 10.9 has veclib
 		XCODE_CLT_VER := $(shell pkgutil --pkg-info=com.apple.pkg.CLTools_Executables | grep -o 'version: 6')
 		ifneq (,$(findstring version: 6,$(XCODE_CLT_VER)))
-			BLAS_INCLUDE ?= /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.10.sdk/System/Library/Frameworks/Accelerate.framework/Versions/Current/Frameworks/vecLib.framework/Headers/
+			BLAS_INCLUDE ?= /System/Library/Frameworks/Accelerate.framework/Versions/Current/Frameworks/vecLib.framework/Headers/
 			LDFLAGS += -framework Accelerate
 		else
 			BLAS_INCLUDE ?= /System/Library/Frameworks/vecLib.framework/Versions/Current/Headers/
@@ -344,7 +353,6 @@ endif
 LDFLAGS += $(foreach librarydir,$(LIBRARY_DIRS),-L$(librarydir)) $(PKG_CONFIG) \
 		$(foreach library,$(LIBRARIES),-l$(library))
 PYTHON_LDFLAGS := $(LDFLAGS) $(foreach library,$(PYTHON_LIBRARIES),-l$(library))
-DYNAMIC_LDFLAGS := -l$(PROJECT) -Wl,-rpath,\$$ORIGIN/../lib
 
 # 'superclean' target recursively* deletes all files ending with an extension
 # in $(SUPERCLEAN_EXTS) below.  This may be useful if you've built older
@@ -420,10 +428,11 @@ py$(PROJECT): py
 
 py: $(PY$(PROJECT)_SO) $(PROTO_GEN_PY)
 
-$(PY$(PROJECT)_SO): $(PY$(PROJECT)_SRC) $(STATIC_NAME) $(PY$(PROJECT)_HXX_SRC)
-	@ echo CXX $<
+$(PY$(PROJECT)_SO): $(PY$(PROJECT)_SRC) $(PY$(PROJECT)_HXX) | $(DYNAMIC_NAME)
+	@ echo CXX/LD -o $@ $<
 	$(Q)$(CXX) -shared -o $@ $(PY$(PROJECT)_SRC) \
-		$(STATIC_LINK_COMMAND) $(LINKFLAGS) $(PYTHON_LDFLAGS)
+		-o $@ $(LINKFLAGS) -l$(PROJECT) $(PYTHON_LDFLAGS) \
+		-Wl,-rpath,$(ORIGIN)/../../build/lib
 
 mat$(PROJECT): mat
 
@@ -441,9 +450,9 @@ $(MAT$(PROJECT)_SO): $(MAT$(PROJECT)_SRC) $(STATIC_NAME)
 			CXXFLAGS="\$$CXXFLAGS $(MATLAB_CXXFLAGS)" \
 			CXXLIBS="\$$CXXLIBS $(STATIC_LINK_COMMAND) $(LDFLAGS)" -output $@
 
-runtest: $(TEST_ALL_BIN) $(TEST_ALL_DYNLINK_BIN)
-	$(TEST_ALL_BIN) $(TEST_GPUID) --gtest_shuffle $(TEST_FILTER) && \
-	$(TEST_ALL_DYNLINK_BIN) $(TEST_GPUID) --gtest_shuffle $(TEST_FILTER)
+runtest: $(TEST_ALL_BIN)
+	$(TOOL_BUILD_DIR)/caffe
+	$(TEST_ALL_BIN) $(TEST_GPUID) --gtest_shuffle $(TEST_FILTER)
 
 pytest: py
 	cd python; python -m unittest discover -s caffe/test
@@ -480,7 +489,7 @@ $(ALL_BUILD_DIRS): | $(BUILD_DIR_LINK)
 
 $(DYNAMIC_NAME): $(OBJS) | $(LIB_BUILD_DIR)
 	@ echo LD -o $@
-	$(Q)$(CXX) -shared -o $@ $(OBJS) $(LINKFLAGS) $(LDFLAGS)
+	$(Q)$(CXX) -shared -o $@ $(OBJS) $(LINKFLAGS) $(LDFLAGS) $(DYNAMIC_FLAGS)
 
 $(STATIC_NAME): $(OBJS) | $(LIB_BUILD_DIR)
 	@ echo AR -o $@
@@ -507,38 +516,38 @@ $(BUILD_DIR)/cuda/%.o: %.cu | $(ALL_BUILD_DIRS)
 		|| (cat $@.$(WARNS_EXT); exit 1)
 	@ cat $@.$(WARNS_EXT)
 
-$(TEST_ALL_BIN): $(TEST_MAIN_SRC) $(TEST_OBJS) $(GTEST_OBJ) $(STATIC_NAME) \
-		| $(TEST_BIN_DIR)
-	@ echo CXX/LD -o $@ $<
-	$(Q)$(CXX) $(TEST_MAIN_SRC) $(TEST_OBJS) $(GTEST_OBJ) $(STATIC_LINK_COMMAND) \
-		-o $@ $(LINKFLAGS) $(LDFLAGS)
-
-$(TEST_ALL_DYNLINK_BIN): $(TEST_MAIN_SRC) $(TEST_OBJS) $(GTEST_OBJ) $(DYNAMIC_NAME) \
-		| $(TEST_BIN_DIR)
+$(TEST_ALL_BIN): $(TEST_MAIN_SRC) $(TEST_OBJS) $(GTEST_OBJ) \
+		| $(DYNAMIC_NAME) $(TEST_BIN_DIR)
 	@ echo CXX/LD -o $@ $<
 	$(Q)$(CXX) $(TEST_MAIN_SRC) $(TEST_OBJS) $(GTEST_OBJ) \
-		-o $@ $(LINKFLAGS) $(LDFLAGS) $(DYNAMIC_LDFLAGS)
+		-o $@ $(LINKFLAGS) $(LDFLAGS) -l$(PROJECT) -Wl,-rpath,$(ORIGIN)/../lib
 
 $(TEST_CU_BINS): $(TEST_BIN_DIR)/%.testbin: $(TEST_CU_BUILD_DIR)/%.o \
-	$(GTEST_OBJ) $(STATIC_NAME) | $(TEST_BIN_DIR)
+	$(GTEST_OBJ) | $(DYNAMIC_NAME) $(TEST_BIN_DIR)
 	@ echo LD $<
-	$(Q)$(CXX) $(TEST_MAIN_SRC) $< $(GTEST_OBJ) $(STATIC_LINK_COMMAND) \
-		-o $@ $(LINKFLAGS) $(LDFLAGS)
+	$(Q)$(CXX) $(TEST_MAIN_SRC) $< $(GTEST_OBJ) \
+		-o $@ $(LINKFLAGS) $(LDFLAGS) -l$(PROJECT) -Wl,-rpath,$(ORIGIN)/../lib
 
 $(TEST_CXX_BINS): $(TEST_BIN_DIR)/%.testbin: $(TEST_CXX_BUILD_DIR)/%.o \
-	$(GTEST_OBJ) $(STATIC_NAME) | $(TEST_BIN_DIR)
+	$(GTEST_OBJ) | $(DYNAMIC_NAME) $(TEST_BIN_DIR)
 	@ echo LD $<
-	$(Q)$(CXX) $(TEST_MAIN_SRC) $< $(GTEST_OBJ) $(STATIC_LINK_COMMAND) \
-		-o $@ $(LINKFLAGS) $(LDFLAGS)
+	$(Q)$(CXX) $(TEST_MAIN_SRC) $< $(GTEST_OBJ) \
+		-o $@ $(LINKFLAGS) $(LDFLAGS) -l$(PROJECT) -Wl,-rpath,$(ORIGIN)/../lib
 
 # Target for extension-less symlinks to tool binaries with extension '*.bin'.
 $(TOOL_BUILD_DIR)/%: $(TOOL_BUILD_DIR)/%.bin | $(TOOL_BUILD_DIR)
 	@ $(RM) $@
 	@ ln -s $(abspath $<) $@
 
-$(TOOL_BINS) $(EXAMPLE_BINS): %.bin : %.o $(STATIC_NAME)
-	@ echo LD $<
-	$(Q)$(CXX) $< $(STATIC_LINK_COMMAND) -o $@ $(LINKFLAGS) $(LDFLAGS)
+$(TOOL_BINS): %.bin : %.o | $(DYNAMIC_NAME)
+	@ echo CXX/LD -o $@
+	$(Q)$(CXX) $< -o $@ $(LINKFLAGS) -l$(PROJECT) $(LDFLAGS) \
+		-Wl,-rpath,$(ORIGIN)/../lib
+
+$(EXAMPLE_BINS): %.bin : %.o | $(DYNAMIC_NAME)
+	@ echo CXX/LD -o $@
+	$(Q)$(CXX) $< -o $@ $(LINKFLAGS) -l$(PROJECT) $(LDFLAGS) \
+		-Wl,-rpath,$(ORIGIN)/../../lib
 
 proto: $(PROTO_GEN_CC) $(PROTO_GEN_HEADER)
 
