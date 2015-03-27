@@ -36,7 +36,9 @@ void CuDNNSoftmaxLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
 
 template <typename Dtype>
 CuDNNSoftmaxLayer<Dtype>::~CuDNNSoftmaxLayer() {
-  if (!handles_setup_) { return; };
+  // Check that handles have been setup before destroying.
+  if (!handles_setup_) { return; }
+
   cudnnDestroyTensorDescriptor(bottom_desc_);
   cudnnDestroyTensorDescriptor(top_desc_);
   cudnnDestroy(handle_);
