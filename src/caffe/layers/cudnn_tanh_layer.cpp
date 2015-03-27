@@ -33,9 +33,10 @@ void CuDNNTanHLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
 template <typename Dtype>
 CuDNNTanHLayer<Dtype>::~CuDNNTanHLayer() {
   if (!handles_setup_) { return; }
+
   cudnnDestroyTensorDescriptor(this->bottom_desc_);
   cudnnDestroyTensorDescriptor(this->top_desc_);
-  CUDNN_CHECK(cudnnDestroy(this->handle_));
+  cudnnDestroy(this->handle_);
 }
 
 INSTANTIATE_CLASS(CuDNNTanHLayer);

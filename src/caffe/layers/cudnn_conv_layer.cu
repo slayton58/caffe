@@ -19,6 +19,11 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
     Dtype* top_data = top[i]->mutable_gpu_data();
     const Dtype* weight = this->blobs_[0]->gpu_data();
 
+    size_t workspace_limit_bytes = this->kernel_h_ *
+                                   this->kernel_w_ *
+                                   this->channels_ *
+                                   sizeof(int) + 1;
+
     // Forward through cuDNN in parallel over groups.
     for (int g = 0; g < this->group_; g++) {
       Dtype alpha = 1.0;
@@ -26,14 +31,17 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
 
       cudnnConvolutionFwdAlgo_t algo;
 
-      // get the desired convolution algorithm
+      // pick the convolution algorithm
+      // TODO(shelhamer) this should be done during reshape
+      // TODO(shelhamer) the choice of automatic or manual algorithm picking
+      // should be exposed in proto
       CUDNN_CHECK(cudnnGetConvolutionForwardAlgorithm(handle_[g],
         bottom_descs_[i],
         filter_desc_,
         conv_descs_[i],
         top_descs_[i],
-        CUDNN_CONVOLUTION_FWD_PREFER_FASTEST,
-        0,  // memoryLimitInBytes,
+        CUDNN_CONVOLUTION_FWD_SPECIFY_WORKSPACE_LIMIT,
+        workspace_limit_bytes,  // memoryLimitInBytes,
         &algo));
 
       // get minimum size of the workspace needed for the desired algorithm
@@ -47,15 +55,17 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
         algo,
         &workspaceSizeInBytes_temp));
 
-      // printf("selected algo %d, %d bytes workspace needed (%d bytes workspace now)\n",(int)algo, (int)workspaceSizeInBytes_temp,workspaceSizeInBytes);
       if (workspaceSizeInBytes_temp > workspaceSizeInBytes) {
         workspaceSizeInBytes = workspaceSizeInBytes_temp;
         // free the existing workspace and allocate a new (larger) one
-        if (this->workspace != NULL) {
-          cudaFree(this->workspace);
+        cudaFree(this->workspace);
+        cudaError_t err = cudaMalloc(&(this->workspace), workspaceSizeInBytes);
+        if (err != cudaSuccess) {
+          // force zero memory path
+          algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
+          workspace = NULL;
+          workspaceSizeInBytes = 0;
         }
-        cudaMalloc(&(this->workspace), workspaceSizeInBytes);
-        CUDA_POST_KERNEL_CHECK;
       }
 
       // Filters.
